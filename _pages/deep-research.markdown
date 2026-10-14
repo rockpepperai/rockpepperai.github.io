@@ -14,192 +14,171 @@ Everything I have learnt about deep research are from the following resources:
 
 3️⃣ [renschi's](https://github.com/renschni) [Manus agent report](https://gist.github.com/renschni/4fbc70b31bad8dd57f3370239dccd58f)
 
+4️⃣ [Deep Agents by Harrison Chase](https://www.langchain.com/blog/deep-agents) — the pattern below, given a name and formalised into an open-source harness
+
+5️⃣ [Deep Agents vs LangChain vs LangGraph](https://www.langchain.com/blog/deep-agents-vs-langchain-vs-langgraph) — where each of these layers actually fits
+
+6️⃣ [Organizing Context in a Multi-Agent Harness](https://www.langchain.com/blog/organizing-context-in-a-multi-agent-harness) — current thinking on what to share between the orchestrator and its sub-agents
+
+> 📌 This page is deliberately **conceptual, not a tutorial**. Everything below is pseudocode — the goal is to understand the shape of the pattern, not to copy-paste a working agent. Translate it to whatever framework or language you use.
 
 **The core idea is to:**
 
-✅ Have a "main" agent, that is provided with a bigger goal which it needs to achieve using specialised sub-agents 
+✅ Have a "main" agent, that is provided with a bigger goal which it needs to achieve using specialised sub-agents
 
-```python
-from langgraph.prebuilt import create_react_agent
-
-def get_deep_research_agent():
-  deep_research_agent = create_react_agent(
-    model=get_llm(),
-    tools=[sub_agent_selection_tool],
-    response_format=CustomStructuredOutput,
-  )
-
-  return deep_research_agent
+```
+define deep_research_agent:
+  model      = llm()
+  tools      = [ sub_agent_selection_tool ]
+  output     = CustomStructuredOutput
+  return agent(model, tools, output)
 ```
 
 ✅ A set of sub-agents who have smaller goals and tools they need, to help them achieve their individual goals - These sub-agents are used by the main agent as tools
 
-```python
-from langgraph.prebuilt import create_react_agent
-from langgraph.graph.state import CompiledStateGraph
+```
+define sub_agent(prompt, tools):
+  return agent(model=llm(), tools=tools, prompt=prompt)
 
-def get_sub_agent_1():
-  return create_react_agent(
-    model=get_llm(),
-    tools=[...],
-    prompt=SUB_AGENT_1_PROMPT,
-  )
-
-def get_sub_agent_2():
-  return create_react_agent(
-    model=get_llm(),
-    tools=[...],
-    prompt=SUB_AGENT_2_PROMPT,
-  )
-
-def get_sub_agent_3():
-  return create_react_agent(
-    model=get_llm(),
-    tools=[...],
-    prompt=SUB_AGENT_3_PROMPT,
-  )
-
-def get_sub_agent_4():
-  return create_react_agent(
-    model=get_llm(),
-    tools=[...],
-    prompt=SUB_AGENT_4_PROMPT,
-  )
-
-def get_sub_agent_5():
-  return create_react_agent(
-    model=get_llm(),
-    tools=[...],
-    prompt=SUB_AGENT_5_PROMPT,
-  )
-
-SUB_AGENT_TYPE = Literal[
-  "sub_agent_1",  # Specialist in task A
-  "sub_agent_2",  # Specialist in task B
-  "sub_agent_3",  # Specialist in task C
-  "sub_agent_4",  # Specialist in task D
-  "sub_agent_5",  # Specialist in task E
-]
-
-subagents: Dict[SUB_AGENT_TYPE, CompiledStateGraph] = {}
-
-subagents["sub_agent_1"] = get_sub_agent_1()
-subagents["sub_agent_2"] = get_sub_agent_2()
-subagents["sub_agent_3"] = get_sub_agent_3()
-subagents["sub_agent_4"] = get_sub_agent_4()
-subagents["sub_agent_5"] = get_sub_agent_5()
+sub_agents = {
+  "sub_agent_1": sub_agent(SUB_AGENT_1_PROMPT, [...]),  # specialist in task A
+  "sub_agent_2": sub_agent(SUB_AGENT_2_PROMPT, [...]),  # specialist in task B
+  "sub_agent_3": sub_agent(SUB_AGENT_3_PROMPT, [...]),  # specialist in task C
+  "sub_agent_4": sub_agent(SUB_AGENT_4_PROMPT, [...]),  # specialist in task D
+  "sub_agent_5": sub_agent(SUB_AGENT_5_PROMPT, [...]),  # specialist in task E
+}
 ```
 
-✅ Breakdown the bigger goal into multiple smaller tasks - A list of ToDos or plans or task items. The main agent is tasked to think and breakdown the bigger goals into specific (nearly) atomic tasks that can be executed independently
+✅ Breakdown the bigger goal into multiple smaller tasks - A list of ToDos or plans or task items. The main agent is tasked to think and breakdown the bigger goals into specific (nearly) atomic tasks that can be executed independently. Give the agent a dedicated **planning tool** rather than expecting it to hold the plan purely in its head - each ToDo gets a status (`pending` / `in_progress` / `completed`), and the agent is nudged to re-read (**recite**) its own plan every few steps so it doesn't drift off track on a long-running task
+
+```
+tool write_todos(todos):
+  # todos: list of { task, status }
+  state.todos = todos
+  return "todos updated"
+
+tool read_todos():
+  return state.todos
+
+# the agent re-reads its own plan periodically -
+# this "recitation" is what keeps a long task on track
+loop:
+  plan = read_todos()
+  next_task = pick(plan, status="pending")
+  act_on(next_task)
+```
 
 ✅ Having access to a file system tool that can read-write the ToDos on demand rather than putting everything in prompt - As the complexity grows, the information you want to put in the prompt also grows - This is exactly we need to keep check of
 
-✅ Provide the main agent with a sub-agent selection tool to help determine which sub-agent is good at which task - The trick is to treat the response from the sub-agents as `ToolMessage` rather than `AIMessage`. So when the work done by the sub-agents are sent back to the main agent, to the main agent they are simply output from tool calls
+✅ Provide the main agent with a sub-agent selection tool to help determine which sub-agent is good at which task - The trick is to treat the response from the sub-agents as a **tool result** rather than an **assistant message**. So when the work done by the sub-agents are sent back to the main agent, to the main agent they are simply output from tool calls, not something someone "said"
 
-```python
-from langchain_core.messages import HumanMessage, ToolMessage
-from langchain_core.tools import InjectedToolCallId, tool
-from langgraph.types import Command
+```
+tool sub_agent_selection_tool(content, which_sub_agent):
+  # content         : atleast 5 sentences, extracted from the input, that this
+  #                   sub-agent needs to do its job (more the better)
+  # which_sub_agent : exactly one registered sub-agent name to delegate to
 
-SUB_AGENT_SELECTION_TOOL_DESCRIPTION = """
-Delegate a task to a specialized sub-agent with isolated context.
-Available sub-agents are: sub_agent_1, sub_agent_2, sub_agent_3, sub_agent_4 and sub_agent_5
+  sub_agent = sub_agents[which_sub_agent]
+  result    = sub_agent.invoke(content)
 
-Args:
-    - content: Content (atleast 5 sentences, more the better) extracted from input given to you, which is required for this sub-agent call
-    - which_sub_agent: Exactly one sub-agent name that you can delegate to, in order to fulfil the current task
-    
-"""
-
-SUB_AGENT_TEMPLATE = """
-Content you need to use to do your job:
-{content}
-
-"""
-
-@tool(description=SUB_AGENT_SELECTION_TOOL_DESCRIPTION)
-def sub_agent_selection_tool(
-  content: str,
-  which_sub_agent: str,
-  tool_call_id: Annotated[str, InjectedToolCallId]):
-  
-  LOGGER.debug(f"<!-- Tool called; sub_agent called: {which_sub_agent}")
-  
-  sub_agent = subagents[which_sub_agent]
-  result = sub_agent.invoke(
-    {
-      "message": [
-        HumanMessage(
-          content=SUB_AGENT_TEMPLATE.format(
-            content=content,
-          )
-        )
-      ]
-    }
-  )
-
-  return Command(
-    update={
-        "messages": [
-            ToolMessage(result["messages"][-1].content, tool_call_id=tool_call_id)
-        ],
-    }
-  )
+  # return the result as a TOOL message, not an AI message -
+  # this is what keeps the sub-agent's context isolated from the main agent's
+  return tool_result(result)
 ```
 
-✅ Cleverly written [**ReAct** prompts](https://smith.langchain.com/hub/hwchase17/react) and efficient context engineering [**read this**](https://simonwillison.net/2025/jun/27/context-engineering/) and [**this**](https://www.philschmid.de/context-engineering) - Create as much context for individual agents, remove anything not required
+✅ Cleverly written [**ReAct** prompts](https://smith.langchain.com/hub/hwchase17/react) and efficient context engineering [**read this**](https://simonwillison.net/2025/jun/27/context-engineering/), [**this**](https://www.philschmid.de/context-engineering), and [**this**](https://www.langchain.com/blog/organizing-context-in-a-multi-agent-harness) for the multi-agent specific version of it - Create as much context for individual agents, remove anything not required
 
 ✅ ToDos can be read from file system and put into context as required, RAG/knowledge graph based data retrieval also helps to identify key information required for the particular agent in action and providing it the particular information it needs (nearly zero-noise contenxt - as LLMs hallucinate when they have to juggle with a lot of different information). [More on ToDos.. the LangChain way](https://www.youtube.com/watch?v=dwvhZ1z_Pas).
 
-✅ The "main" agent finally aggregates all the results from all the sub-agents and creates the final research report in one shot
+✅ Let the agent keep an **internal monologue** - a scratchpad of "thinking out loud" that is never shown to the user, kept separate from the final answer. This is where the agent reasons about tradeoffs, notices contradictions in what sub-agents returned, and decides what to do next - the report is only written at the very end, from this scratchpad, not turn by turn
 
-```python
-DEEP_RESEARCH_PROMPT = """
-You are an expert in this and that. You have access to specialist sub-agents to delegate your work.
-Each sub-agent will need specific sections from the input porvided to you, you need to extract specific sections for each sub-agent, provide the extract to the corresponding sub-agent during delegation and get the work done.
-
-Available agents for delegation are:
-
-- sub_agent_1: Expert in task A
-- sub_agent_2: Expert in task B
-- sub_agent_3: Expert in task C
-- sub_agent_4: Expert in task D
-- sub_agent_5: Expert in task E
-
-You are provided with the input below, based on which you need to do your job. 
-
-<Input>
-{input}
-</Input>
-
-**Your goal:**
-Blah blah blah
-
-**Your tasks:**
-1. Delegate work to each of the agents based on their specializations by providing the content they need to do their job. 
-   Think and extract (atleast 5 sentences, more the better) specific sections from the requirement summary, as applicable for each sub-agent based on their specialization.   
-2. Do task A 
-3. Do task B
-4. Do task C
-5. Do task D
-6. Do task E
-7. Combine output exactly as returned by all the sub-agents into one single report. 
-8. Add a summary at the end of the report.
-9. Add your recommendation and commentary on the full report.
-10. Add a note at the bottom that this report is generated by AI, must be verified by humans before use.
-
-Your output must be the exact report only; NO additional sentences, follow-up questions or extra information should be there.
-
-"""
-
-llm_response = get_deep_research_agent().invoke(
-  {  
-    "messages": [HumanMessage(content=DEEP_RESEARCH_PROMPT.format(input=state["input"]))]    
-  }
-)
+```
+tool think(scratch_note):
+  # a no-op tool - writing here changes nothing in the world,
+  # it just gives the model a place to reason before acting
+  state.scratchpad.append(scratch_note)
+  return "noted"
 ```
 
-I have used this pattern for a quite complicated research-like use case (with GPT 4.1 mini).. 
+✅ Build in **self-correction** - before the main agent accepts a sub-agent's result (or its own draft), have it check the result against the original goal and the ToDo it was meant to satisfy. If it doesn't hold up, don't just retry blindly - fix the specific gap and try again
+
+```
+result = sub_agent.invoke(content)
+
+if not satisfies(result, goal=task):
+  gap    = diagnose(result, task)
+  result = sub_agent.invoke(content, hint=gap)   # retry, but smarter this time
+
+mark_todo_complete(task)
+```
+
+✅ **Prune bad paths early.** Not every sub-agent call or research direction pays off. Have the main agent track a lightweight confidence/success signal per branch, and abandon a branch the moment it stops being productive instead of pouring more context and tool calls into a dead end - the failed attempt is worth a one-line note in the scratchpad ("tried X, didn't work, moving on"), not paragraphs of unusable output carried forward into the final report
+
+```
+for task in todos:
+  attempt = 0
+  while attempt < max_attempts:
+    result = sub_agent.invoke(task)
+    if is_promising(result):
+      accept(result)
+      break
+    attempt += 1
+  else:
+    prune(task)   # give up on this path, note it, move to the next task
+```
+
+✅ The "main" agent finally aggregates all the results from all the sub-agents and creates the final research report in one shot
+
+```
+DEEP_RESEARCH_PROMPT:
+  """
+  You are an expert in this and that. You have access to specialist sub-agents
+  to delegate your work. Each sub-agent will need specific sections from the
+  input provided to you - extract those sections and hand them off during
+  delegation.
+
+  Available agents for delegation:
+  - sub_agent_1: expert in task A
+  - sub_agent_2: expert in task B
+  - sub_agent_3: expert in task C
+  - sub_agent_4: expert in task D
+  - sub_agent_5: expert in task E
+
+  Input:
+  <input>{input}</input>
+
+  Your goal:
+  ...
+
+  Your tasks:
+  1. Delegate work to each sub-agent based on its specialisation - think and
+     extract (atleast 5 sentences, more the better) the relevant section for it
+  2. Do task A / task B / task C / task D / task E
+  3. Combine output exactly as returned by all the sub-agents into one report
+  4. Add a summary, your recommendation and commentary at the end
+  5. Add a note that this report is AI-generated and must be verified by a human
+
+  Output only the final report - no follow-up questions, no extra commentary.
+  """
+
+response = deep_research_agent.invoke(DEEP_RESEARCH_PROMPT(input))
+```
+
+**A few mechanisms mature systems tend to layer on top of the above:**
+
+✅ **Skills** - reusable, named behaviours the agent can load on demand, instead of stuffing every capability it might ever need into one giant system prompt
+
+✅ **Human-in-the-loop** - certain steps (an expensive tool call, a delegation with real-world side effects) are worth pausing on and letting a human approve, edit or reject before the agent proceeds - see my [HITL with LangGraph](/2025/12/03/hitl-langgraph/) post for one way to implement this
+
+✅ **MCP as the default way to plug in tools** - instead of writing every tool by hand, agents increasingly reach for tools already exposed by [MCP](https://www.anthropic.com/news/model-context-protocol) servers
+
+✅ **Persistent, cross-session memory** - the ToDo-and-file-system trick above is scoped to a single run; production systems persist a slice of that memory across sessions too, so the agent doesn't start from zero every time
+
+None of this needs to be hand-rolled from scratch - [`deepagents`](https://github.com/langchain-ai/deepagents) is an open-source harness that packages the entire pattern above (planning tool, sub-agent delegation, virtual file system, context management) out of the box, and is a good reference implementation to study alongside this page.
+
+
+
+I have used this pattern for a quite complicated research-like use case (with GPT 4.1 mini, and later on Claude Sonnet 4.6)... 
 
 The results were amazing! 
 

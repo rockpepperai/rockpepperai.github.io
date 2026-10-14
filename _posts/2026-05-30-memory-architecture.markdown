@@ -313,6 +313,7 @@ At retrieval time:
 
 Not everything should be written back to long-term memory. Apply a **write filter**:
 
+{% raw %}
 ```python
 WRITE_DECISION_PROMPT = """
 Evaluate this agent turn. Decide what (if anything) should be 
@@ -336,6 +337,7 @@ def evaluate_for_write(turn: str, llm) -> dict:
     response = llm.invoke(WRITE_DECISION_PROMPT.format(turn=turn))
     return json.loads(response)
 ```
+{% endraw %}
 
 **Write routing by category:**
 

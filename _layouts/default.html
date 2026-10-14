@@ -4,20 +4,16 @@
 {% include head.html %}
 <body>
   <div class="container">
-    <div class="row">
-      <div class="col-12">
-        <h4 class="title"><a href="{{ page.url | prepend: site.baseurl }}">{{ site.title }}</a></h4>
-        <p>{{ site.description }}</p>
-      </div>
-      <div class="col-12">
-        <p><a href="/">Home</a>&nbsp;&nbsp;{% for page in site.pages %}
-          {% if page.title and page.includelink %}<a href="{{ page.url | prepend: site.baseurl }}">{{
-            page.title }}</a>&nbsp;&nbsp;{% endif %}
-          {% endfor %} 
-        </p>
-      </div>
-    </div>
-    {{ content }}
+    <header class="site-header">
+      <div class="site-title"><a href="{{ page.url | prepend: site.baseurl }}">{{ site.title }}</a></div>
+      <p class="site-description">{{ site.description }}</p>
+      <nav class="site-nav">
+        <a href="/">Home</a>{% for page in site.pages %}{% if page.title and page.includelink %}<a href="{{ page.url | prepend: site.baseurl }}">{{ page.title }}</a>{% endif %}{% endfor %}
+      </nav>
+    </header>
+    <main>
+      {{ content }}
+    </main>
   </div>
   {% include footer.html %}
 </body>
