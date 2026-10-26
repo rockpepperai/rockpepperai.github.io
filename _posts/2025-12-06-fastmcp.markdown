@@ -11,4 +11,4 @@ Built with FastMCP and FastAPI, with example for both agents (wrapped in tool) u
 
 I deployed this on Azure App Service (Linux) with Python 3.11 runtime. I created this single-file gist as a reference template, you need to adjust here and there and modularize as per your needs.
 
-<script src="https://gist.github.com/agentloopfyi/4647c82939b3ab3fe2a3460c4c4fdc6b.js"></script>
+<script src="https://gist.github.com/rockpepperai/4647c82939b3ab3fe2a3460c4c4fdc6b.js"></script>
