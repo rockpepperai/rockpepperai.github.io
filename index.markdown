@@ -15,5 +15,5 @@ Hi there! I am <a href="https://www.linkedin.com/in/sauravdey" target="_blank">S
 Having spent 12+ years in the industry, I currently work as an AI Solution Architect, developing AI agents, agentic workflows and large-scale RAG for enterprise systems.
 
 **Academic credentials:**
-- Completed an online program in reinforcement learning from IISc Bangalore (2025)
-- BTech in Computer Science and Engineering from West Bengal University of Technology, Kolkata (2013)
+- Pursuing Masters in AI from IIT Patna (expected to complete by mid-2028)
+- BTech in Computer Science and Engineering (2013)
